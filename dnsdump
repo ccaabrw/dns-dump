@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Capture DNS traffic for a period of time and then analyse the results
+#
+#						Bri Aug 2017
+#
+# Sort by TLD
+
+recip="b.watts@ucl.ac.uk"
+dumpfile="/tmp/dnsdump.`date +%F`.tcp"
+
+# Reverse hostname [except alias doesn't work for some reason - subshell?]
+alias revname='perl -ple'"'"'$_=join".",reverse split/\./'"'"
+
+# May specify capture timeout as argument
+if [ $# -eq 1 ]; then
+    captime=$1
+else
+    # Six hours
+    captime=21600
+fi
+
+# Capture DNS request packets
+(tcpdump -w $dumpfile dst host `hostname` and port 53 > /dev/null 2>&1) & \
+pid=$!
+
+# Only run for specified amount of time
+sleep $captime && kill $pid
+
+# Pull client names from dump file and mail the results
+tcpdump -r $dumpfile | \
+egrep 'A\?|AAAA\?' | \
+awk '{print $3}' | \
+sed 's/\.[^\.]*$//' | \
+perl -ple'$_=join".",reverse split/\./' | \
+sort -n | \
+perl -ple'$_=join".",reverse split/\./' | \
+uniq -c | \
+awk '{print $2"\t"$1}' | \
+mail -s "DNS clients - `hostname`" $recip
+
+# Remove old dump files
+find /tmp -name 'dnsdump.*.tcp' -mtime +2 -exec rm {} \;
+
